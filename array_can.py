@@ -97,7 +97,7 @@ class ArrayCanEnv(BaseEnv):
             xyz = torch.zeros((b, 3))
             xyz[:, 2] = 0
             xy = torch.rand((b, 2)) * 0.2 - 0.1
-            region = [[-0.2, -0.3], [0.2, 0.3]]
+            region = [[-0.15, -0.15], [0.15, 0.15]]
             sampler = randomization.UniformPlacementSampler(
                 bounds=region, batch_size=b, device=self.device
             )
@@ -181,51 +181,19 @@ class ArrayCanEnv(BaseEnv):
         min_dist, _ = torch.min(coke_to_tcp_dists, dim=1)
         reward = 2 * (1 - torch.tanh(5 * min_dist))
 
-
-        # allignment
-
-        # spacing
-
-        # grasp and place
-        # reward[info["is_can_grasped"]] = 4*[info["is_can_grasped"]]
-
-        # ungrasp and static
-
-        # 2) 불러온 evaluate 플래그
         grasped = info["is_can_grasped"].float()       # 캔을 잡고 있는지
         spaced  = info["is_equally_spaced"].float()    # 동일 간격 조건
         lined   = info["is_linear"].float()            # 일직선 조건
         success = info["success"].float()              # 최종 성공
 
-        # 3) 단계별 가중치
         w_grasp  = 1.0   # grasp 단계 보너스
         w_space  = 2.0   # spacing 단계 보너스
         w_line   = 3.0   # alignment 단계 보너스
         w_succ   = 6.0   # full success 보너스
 
-        # 4) 최종 보상 조합
         reward = reward + grasped * w_grasp + spaced  * w_space \
                         + lined * w_line + success * w_succ
 
-
-        # # ungrasp and static reward
-        # gripper_width = (self.agent.robot.get_qlimits()[0, -1, 1] * 2).to(
-        #     self.device
-        # )  # NOTE: hard-coded with panda
-        # is_cubeA_grasped = info["is_cubeA_grasped"]
-        # ungrasp_reward = (
-        #     torch.sum(self.agent.robot.get_qpos()[:, -2:], axis=1) / gripper_width
-        # )
-        # ungrasp_reward[~is_cubeA_grasped] = 1.0
-        # v = torch.linalg.norm(self.cubeA.linear_velocity, axis=1)
-        # av = torch.linalg.norm(self.cubeA.angular_velocity, axis=1)
-        # static_reward = 1 - torch.tanh(v * 10 + av)
-        # reward[info["is_cubeA_on_cubeB"]] = (
-        #     6 + (ungrasp_reward + static_reward) / 2.0
-        # )[info["is_cubeA_on_cubeB"]]
-        # reward[info[""]]
-
-        # reward[info["success"]] = 8
 
         return reward
 
