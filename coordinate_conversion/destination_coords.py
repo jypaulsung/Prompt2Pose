@@ -1,8 +1,3 @@
-'''
-This script converts the destination pixel coordinates to world coordinates.
-Then it visualizes the world coordinates in the SAPIEN viewer.
-'''
-
 import argparse
 from ast import parse
 from typing import Annotated
@@ -28,6 +23,8 @@ from mani_skill.sensors.camera import parse_camera_configs
 
 from PIL import Image
 import torch
+import json
+import os
 
 from scipy.spatial.transform import Rotation as R
 
@@ -69,15 +66,7 @@ def pixel_to_camera_coords(u, v, Z, K):
     cy = K[1, 2]
     X = (u - cx) * Z / fx
     Y = (v - cy) * Z / fy
-    # print(f"Pixel ({u}, {v}) to camera coordinates: ({X}, {Y}, {Z})")
     return np.array([X, Y, Z])
-
-# def camera_to_world(p_cam, camera_pose):
-#     """Convert camera coordinates to world coordinates using SAPIEN's pose."""
-#     transform = camera_pose.to_transformation_matrix() # 4 x 4 matrix
-#     p_cam_h = np.append(p_cam, 1) # convert to homogeneous coordinates
-#     p_world = transform @ p_cam_h
-#     return p_world[:3] # return only the 3D coordinates
 
 def camera_to_world(p_cam, extrinsic):
     """
@@ -107,25 +96,61 @@ def camera_to_world(p_cam, extrinsic):
 scipy_quat = R.from_euler("xyz", [0.0, np.pi / 2, 0]).as_quat()
 quat_cam = np.array([scipy_quat[3], scipy_quat[0], scipy_quat[1], scipy_quat[2]])
 
-_marker_counter = 0
+def mark_starts(scene, pose, radius=0.01):
+    """
+    Create a visual marker at the specified pose in the scene.
+    Args:
+        scene (sapien.Scene): The scene to add the marker to.
+        pose (list or np.ndarray): The position of the marker in the form [x, y, z].
+        radius (float): The radius of the marker sphere.
+    """
+    global start_counter
+    name = f"start_marker_{start_counter}"
+    start_counter += 1
 
-def create_marker(scene, pose, radius=0.01):
-    global _marker_counter
-    name = f"marker_{_marker_counter}"
-    _marker_counter += 1
+    pose = sapien.Pose(p=[pose[0], pose[1], pose[2]])
+
+    can_marker = actors.build_sphere(
+        scene=scene,
+        radius=radius,
+        color=[0, 0, 1, 1], # Blue color for start markers
+        name=name,
+        body_type="kinematic",
+        add_collision=False,
+        initial_pose=pose
+    )
+    return can_marker
+
+def mark_ends(scene, pose, radius=0.01):
+    global end_counter
+    name = f"end_marker_{end_counter}"
+    end_counter += 1
 
     pose = sapien.Pose(p=[pose[0], pose[1], pose[2]])
 
     marker = actors.build_sphere(
         scene=scene,
         radius=radius,
-        color=[0, 1, 0, 1],
+        color=[0, 1, 0, 1], # Green color for end markers
         name=name,
         body_type="kinematic",
         add_collision=False,
         initial_pose=pose
     )
     return marker
+
+
+def load_detection_data(file_path):
+    """
+    Load coke can detection data from a .txt (JSON-format) file.
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+    
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+
+    return data
 
 
 def main(args: Args):
@@ -158,6 +183,11 @@ def main(args: Args):
     )
     num_trajs = 0
     seed = 0
+    global start_counter, end_counter
+    # Reset the counters
+    # This is to ensure that the markers are named uniquely across multiple runs
+    start_counter = 0
+    end_counter = 0
     env.reset(seed=seed)
 
     # Capture a screenshot of the scene
@@ -167,15 +197,20 @@ def main(args: Args):
     obs_dict = camera.get_obs(rgb=True, depth=True)
     images = camera.get_images(obs_dict)
 
-    # Save the RGB image
-    # rgb_image = images["rgb"]
-    # rgb_np = rgb_image.squeeze().cpu().numpy()
-    # img = Image.fromarray(rgb_np)
-    # path = "/home/jypaulsung/Sapien/only_coke_1.png"
-    # img.save(path)
+    # Load the data from the database
+    file_path = "/home/jypaulsung/Sapien/database/43/can_data_43.txt"
+    data = load_detection_data(file_path)
 
+    # Start pixel coordinates
+    for i, starts in enumerate(data["world_coordinates"]):
+        start = np.zeros(3)
+        start[0] = starts["x"]
+        start[1] = starts["y"]
+        start[2] = starts["z"]
+        mark_starts(env.unwrapped.scene, start)
+    
     # Destination pixel coordinates
-    pixels = [(206, 270), (256, 270), (306, 270)]
+    dst_pixels = [(354, 272), (304, 272), (204, 272), (254, 272)]
 
     # Get depth map
     depth_map = obs_dict["depth"].squeeze()
@@ -189,22 +224,18 @@ def main(args: Args):
     camera_pose = camera.config.pose
 
     # Convert each pixel to world coordinates
-    world_coords = []
-    for (u, v) in pixels:
+    dst_coords = []
+    for (u, v) in dst_pixels:
         u_int, v_int = int(round(u)), int(round(v))
         Z = depth_map[v_int, u_int].cpu().item()
         Z = Z / 1000.0 # convert to meters
         p_cam = pixel_to_camera_coords(u, v, Z, K)
         p_world = camera_to_world(p_cam, extrinsic)
         p_world[2] = 0.105 # set z to the height of the can
-        world_coords.append(p_world)
-
-    # Print the world coordinates
-    for i, coord in enumerate(world_coords):
-        print(f"Destination world coordinate for {pixels[i]} : [{coord[0]}, {coord[1]}, {coord[2]}]")
+        dst_coords.append(p_world)
     
     # Visualize the world coordinates
-    for coord in world_coords:
+    for coord in dst_coords:
         # Ensure coord is a 1D NumPy array with 3 elements
         if isinstance(coord, torch.Tensor):
             position = coord.squeeze().cpu().numpy()[:3].astype(np.float32)
@@ -215,7 +246,7 @@ def main(args: Args):
         pose = sapien.Pose(p=position)
         
         # Add the visual sphere markers
-        create_marker(env.unwrapped.scene, pose=pose.p)
+        mark_ends(env.unwrapped.scene, pose=pose.p)
 
     env.unwrapped.scene.update_render()
 
