@@ -86,13 +86,21 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
         print_env_info=False,
     )
 
+    file = Path(__file__).resolve()
+    project_root = file.parents[4]
+    path = f"{project_root}/dataset/{seed}/can_data_{seed}.txt"
+    world_coords = load_world_coordinates(path)
+    pick = []
+    for i, coord in enumerate(world_coords, start=1):
+        pick.append([coord['x'], coord['y'], 0.08])
+        
     # 모든 캔 위치 (나중에 VLM으로 대체)
-    # seed = 0
-    pick = [[0.11796,  0.056426, 0.08],
-            [0.0148988,0.205559, 0.08],
-            [-0.0594433,0.199338,0.08],
-            [-0.0628068,0.0752942,0.08],
-            [-0.12443, -0.0406532,0.08]]
+    # # seed = 0
+    # pick = [[0.11796,  0.056426, 0.08],
+    #         [0.0148988,0.205559, 0.08],
+    #         [-0.0594433,0.199338,0.08],
+    #         [-0.0628068,0.0752942,0.08],
+    #         [-0.12443, -0.0406532,0.08]]
     # # seed = 1
     # pick = ([0.066385, 0.0737458, 0.08], 
     #         [0.037905, 0.0130262, 0.08], 
