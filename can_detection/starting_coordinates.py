@@ -66,61 +66,64 @@ class Args:
 def parse_args() -> Args:
     return tyro.cli(Args)
 
-def preprocess_caption(caption: str) -> str:
-    result = caption.lower().strip()
-    if result.endswith("."):
-        return result
-    return result + "."
+# def preprocess_caption(caption: str) -> str:
+#     result = caption.lower().strip()
+#     if result.endswith("."):
+#         return result
+#     return result + "."
 
-# colors for visualization
-COLORS = [[0.000, 0.447, 0.741], [0.850, 0.325, 0.098], [0.929, 0.694, 0.125],
-          [0.494, 0.184, 0.556], [0.466, 0.674, 0.188], [0.301, 0.745, 0.933]]
+# # colors for visualization
+# COLORS = [[0.000, 0.447, 0.741], [0.850, 0.325, 0.098], [0.929, 0.694, 0.125],
+#           [0.494, 0.184, 0.556], [0.466, 0.674, 0.188], [0.301, 0.745, 0.933]]
 
-def plot_results(pil_img, scores, labels, boxes, text, output_path):
-    """
-    Visualizes the results of the object detection and saves the image with bounding boxes and labels.
-    """
-    plt.figure(figsize=(16,10))
-    plt.imshow(pil_img)
-    ax = plt.gca()
-    colors = COLORS * 100
-    for score, label, (xmin, ymin, xmax, ymax), c in zip(scores, labels, boxes, colors):
-        ax.add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
-                                   fill=False, color=c, linewidth=3))
-        label = f'{text}: {score:0.2f}'
-        ax.text(xmin, ymin, label, fontsize=15,
-                bbox=dict(facecolor='yellow', alpha=0.5))
-    plt.axis('off')
-    plt.savefig(output_path)
+# def plot_results(pil_img, scores, labels, boxes, text, output_path):
+#     """
+#     Visualizes the results of the object detection and saves the image with bounding boxes and labels.
+#     """
+#     plt.figure(figsize=(16,10))
+#     plt.imshow(pil_img)
+#     ax = plt.gca()
+#     colors = COLORS * 100
+#     for score, label, (xmin, ymin, xmax, ymax), c in zip(scores, labels, boxes, colors):
+#         ax.add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
+#                                    fill=False, color=c, linewidth=3))
+#         label = f'{text}: {score:0.2f}'
+#         ax.text(xmin, ymin, label, fontsize=15,
+#                 bbox=dict(facecolor='yellow', alpha=0.5))
+#     plt.axis('off')
+#     plt.savefig(output_path)
 
-def run_inference(image, text):
-    """
-    Runs inference on the image using the GroundingDino model and returns the outputs, processor (pre-trained GroundingDino), and device.
-    """
-    processor = GroundingDinoProcessor.from_pretrained("IDEA-Research/grounding-dino-base")
-    inputs = processor(images=image, text=preprocess_caption(text), return_tensors="pt")
+# def run_inference(image, text):
+#     """
+#     Runs inference on the image using the GroundingDino model and returns the outputs, processor (pre-trained GroundingDino), and device.
+#     """
+#     processor = GroundingDinoProcessor.from_pretrained("IDEA-Research/grounding-dino-base")
+#     inputs = processor(images=image, text=preprocess_caption(text), return_tensors="pt")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = GroundingDinoForObjectDetection.from_pretrained("IDEA-Research/grounding-dino-base")
-    model = model.to(device)
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     model = GroundingDinoForObjectDetection.from_pretrained("IDEA-Research/grounding-dino-base")
+#     model = model.to(device)
 
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+#     inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    if torch.cuda.is_available():
-        print("Current device:", torch.cuda.current_device())
-        print("Device name:", torch.cuda.get_device_name(torch.cuda.current_device()))
-    else:
-        print("Using CPU for inference.")
+#     if torch.cuda.is_available():
+#         print("Current device:", torch.cuda.current_device())
+#         print("Device name:", torch.cuda.get_device_name(torch.cuda.current_device()))
+#     else:
+#         print("Using CPU for inference.")
 
-    with torch.no_grad():
-        outputs = model(**inputs)
+#     with torch.no_grad():
+#         outputs = model(**inputs)
 
-    return outputs, processor, device
+#     return outputs, processor, device
 
 
 def detect_and_filter_circles(image_path, boxes, centers, edges):
     """
-    Detects circles in the image and filters them based on bounding boxes.
+    Detects circles in the image (cans).
+    Filters the circles based on the bounding boxes (returned by the object detection model) provided.
+    GroundingDino was initially used to detect the bounding boxes of the cans, but it did not meet the accuracy requirements.
+    Thus, we only use OpenCV's HoughCircles to detect the circles in the image for now.
     """
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     color = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
@@ -217,12 +220,13 @@ quat_cam = np.array([scipy_quat[3], scipy_quat[0], scipy_quat[1], scipy_quat[2]]
 
 _marker_counter = 0
 
-def mark_can(scene, pose, radius=0.01):
+def mark_coordinate(scene, pose, color, radius=0.01):
     """
     Create a visual marker at the specified pose in the scene.
     Args:
         scene (sapien.Scene): The scene to add the marker to.
         pose (list or np.ndarray): The position of the marker in the form [x, y, z].
+        color (list): The color of the marker in RGBA format, e.g., [1, 0, 0, 1] for red.
         radius (float): The radius of the marker sphere.
     """
     global _marker_counter
@@ -234,7 +238,7 @@ def mark_can(scene, pose, radius=0.01):
     can_marker = actors.build_sphere(
         scene=scene,
         radius=radius,
-        color=[0, 0, 1, 1],
+        color=color,
         name=name,
         body_type="kinematic",
         add_collision=False,
@@ -302,28 +306,28 @@ def main(args: Args):
     time.sleep(1) # Give some time for the file to be fully written
 
     # Continue processing the image
-    image_path = source_path
-    image = Image.open(image_path).convert("RGB")
-    text = "coke can"
-    outputs, processor, device = run_inference(image, text)
+    # image_path = source_path
+    # image = Image.open(image_path).convert("RGB")
+    # text = "coke can"
+    # outputs, processor, device = run_inference(image, text)
 
-    width, height = image.size
-    postprocessed_outputs = processor.image_processor.post_process_object_detection(
-        outputs,
-        target_sizes=[(height, width)],
-        threshold=0.25
-    )
-    results = postprocessed_outputs[0]
+    # width, height = image.size
+    # postprocessed_outputs = processor.image_processor.post_process_object_detection(
+    #     outputs,
+    #     target_sizes=[(height, width)],
+    #     threshold=0.25
+    # )
+    # results = postprocessed_outputs[0]
 
     boxes = []
     circle_centers = []
     circle_edges = []
-    for score, box in zip(results['scores'], results['boxes']):
-        xmin, ymin, xmax, ymax = box.tolist()
-        boxes.append((xmin, ymin, xmax, ymax))    
+    # for score, box in zip(results['scores'], results['boxes']):
+    #     xmin, ymin, xmax, ymax = box.tolist()
+    #     boxes.append((xmin, ymin, xmax, ymax))    
     
-    plot_results(image, results['scores'].tolist(), results['labels'].tolist(),
-                 results['boxes'].tolist(), text, f"/home/jypaulsung/Sapien/database/{seed}/can_detection_{seed}.png")
+    # plot_results(image, results['scores'].tolist(), results['labels'].tolist(),
+    #              results['boxes'].tolist(), text, f"/home/jypaulsung/Sapien/database/{seed}/can_detection_{seed}.png")
     
     cv2.imwrite(f'/home/jypaulsung/Sapien/database/{seed}/detected_circles_{seed}.png', detect_and_filter_circles(source_path, boxes, circle_centers, circle_edges))
 
@@ -358,10 +362,10 @@ def main(args: Args):
 
     # Print the world coordinates (set z to 10.5 before printing)
     for i, coord in enumerate(world_coords):
-        coord[2] = 10.5
-        print(f"Coke can {i+1} world coordinate: [{coord[0]}, {coord[1]}, {coord[2]}]")
+        coord[2] = 0.105
+        print(f"Coke can {i+1} world coordinate: [{coord[0]}, {coord[1]}, {coord[2]}]")        
     
-    # Visualize the world coordinates
+    # Mark the detected can positions in the scene
     for coord in world_coords:
         # Ensure coord is a 1D NumPy array with 3 elements
         if isinstance(coord, torch.Tensor):
@@ -373,15 +377,27 @@ def main(args: Args):
         pose = sapien.Pose(p=position)
         
         # Add the visual sphere markers
-        mark_can(env.unwrapped.scene, pose=pose.p)
+        mark_coordinate(env.unwrapped.scene, pose=pose.p, color=[0, 0, 1, 1]) # blue color for the markers
 
-    env.unwrapped.scene.update_render()
+    # Mark the can positions defined in the environment and add them to a list
+    starting_reference = []
+    for can_pose in env.unwrapped.get_can_poses():
+        if isinstance(can_pose, torch.Tensor):
+            position = can_pose.squeeze().cpu().numpy()[:3].astype(np.float32)
+        else:
+            position = np.array(can_pose[:3], dtype=np.float32)
+        
+        pose = sapien.Pose(p=position)
+        starting_reference.append(pose.p)
+        
+        mark_coordinate(env.unwrapped.scene, pose=pose.p, color=[1, 1, 0, 1]) # yellow color for the markers
 
     # Save the coordinates in JSON-like .txt file
     detection_data = {
         "circle_centers": [{"x": float(x), "y": float(y)} for x, y in circle_centers],
         "circle_edges_0_deg": [{"x": float(x), "y": float(y)} for x, y in circle_edges],
-        "world_coordinates": [{"x": float(coord[0]), "y": float(coord[1]), "z": float(coord[2])} for coord in world_coords],
+        "starting_coordinates": [{"x": float(coord[0]), "y": float(coord[1]), "z": float(coord[2])} for coord in world_coords],
+        "starting_reference": [{"x": float(coord[0]), "y": float(coord[1]), "z": float(coord[2])} for coord in starting_reference]
     }
 
     
@@ -389,8 +405,9 @@ def main(args: Args):
     with open(save_path, "w") as f:
         json.dump(detection_data, f, indent=4)
 
-    print(f"Saved detection data to {save_path}")
+    print(f"Saved detection data to {save_path}.")
 
+    env.unwrapped.scene.update_render()
 
     while True:
         print(f"Collecting trajectory {num_trajs+1}, seed={seed}")
