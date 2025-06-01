@@ -1,3 +1,7 @@
+# add to python3.11/site-packages/mani_skill/envs/tasks/tabletop/array_can_v2.py
+'''
+This script implements an ArrayCan-v2 environment for the starting_coordinates.py.
+'''
 from typing import Any, Dict, Union
 
 import numpy as np
@@ -17,24 +21,23 @@ from mani_skill.utils.scene_builder.table import TableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
 
 
-@register_env("ArrayCan-v1", max_episode_steps=50)
-class ArrayCanEnv(BaseEnv):
+
+@register_env("ArrayCan-v2", max_episode_steps=50)
+class ArrayCanEnv2(BaseEnv):
     """
     **Task Description:**
-    The goal is to pick up a red cube and stack it on top of a green cube and let go of the cube without it falling
-
+    The goal is to arrange cans in a specific pattern on the table.
+    The cans should be equally spaced and form a linear arrangement.
+    
     **Randomizations:**
-    - both cubes have their z-axis rotation randomized
-    - both cubes have their xy positions on top of the table scene randomized. The positions are sampled such that the cubes do not collide with each other
-
+    - The cans are placed randomly on the table within a specified region.
+    - The cans have their xy positions on top of the table scene randomized. The positions are sampled such that the cans do not collide with each other.
+    
     **Success Conditions:**
-    - the red cube is on top of the green cube (to within half of the cube size)
-    - the red cube is static
-    - the red cube is not being grasped by the robot (robot must let go of the cube)
-
-    _sample_video_link = "https://github.com/haosulab/ManiSkill/raw/main/figures/environment_demos/StackCube-v1_rt.mp4"
+    - The cans are arranged in a linear pattern with equal spacing.
+    - The cans are not being grasped by the robot (robot must let go of the cans).
+    - The cans are static and not moving.
     """
-
     SUPPORTED_ROBOTS = ["panda_wristcam", "panda", "fetch"]
     agent: Union[Panda, Fetch]
 
@@ -42,12 +45,13 @@ class ArrayCanEnv(BaseEnv):
         self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
+        self.num_cans = random.randint(3, 5)  # Randomly choose number of cans between 3 and 5
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
     def _default_sensor_configs(self):
-        pose = sapien_utils.look_at(eye=[0.3, 0, 0.6], target=[-0.1, 0, 0.1])
-        return [CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100)]
+        pose = sapien_utils.look_at(eye=[0.7, 0, 0.3], target=[0.18, 0, 0])
+        return [CameraConfig("base_camera", pose, 512, 512, np.pi / 2, 0.01, 100)]
 
     @property
     def _default_human_render_camera_configs(self):
@@ -63,10 +67,9 @@ class ArrayCanEnv(BaseEnv):
         )
         self.table_scene.build()
         
-        self.scale = 0.03  # scale factor for the can model
-        self.radius = 1  # radius of the can (m)
-        self.height = 3.5   # height of the can (m)
-
+        self.scale = 0.03  # modeling scale for the cans
+        self.radius = 1  # can radius (m)
+        self.height = 3.5   # can total height (m)
 
         self.scaled_radius = self.radius * self.scale
         self.scaled_half_height = (self.height * self.scale) / 2
@@ -76,7 +79,7 @@ class ArrayCanEnv(BaseEnv):
         I_xy = mass * (2*self.scaled_half_height)**2 / 3
 
         builder = self.scene.create_actor_builder()
-        model_path = os.path.join(os.path.dirname(__file__), "../../../assets/models/coke/coke.obj")
+        model_path = os.path.join(os.path.dirname(__file__), "/home/jypaulsung/Sapien/Shared/models/coke/coke.obj")
         builder.add_visual_from_file(
             model_path,
             scale=[self.scale] * 3
@@ -84,9 +87,10 @@ class ArrayCanEnv(BaseEnv):
         builder.add_convex_collision_from_file(model_path, scale=[self.scale]*3)
         builder.set_mass_and_inertia(mass, sapien.Pose([0,0,self.scaled_half_height*(-0.1)],[1,0,0,0]), np.array([I_xy,I_xy,I_z], dtype=np.float32))
 
-        self.cokeA = builder.build(name="cokeA")
-        self.cokeB = builder.build(name="cokeB")
-        self.cokeC = builder.build(name="cokeC")
+        self.cokes: List[sapien.Actor] = []
+        for i in range(self.num_cans):
+            coke = builder.build(name=f"coke{i}")
+            self.cokes.append(coke)
 
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
@@ -96,13 +100,13 @@ class ArrayCanEnv(BaseEnv):
 
             xyz = torch.zeros((b, 3))
             xyz[:, 2] = 0
-            xy = torch.rand((b, 2)) * 0.2 - 0.1
+            xy = torch.rand((b, 2)) * 0.26 - 0.13
             region = [[-0.15, -0.15], [0.15, 0.15]]
             sampler = randomization.UniformPlacementSampler(
                 bounds=region, batch_size=b, device=self.device
             )
 
-            for can in (self.cokeA, self.cokeB, self.cokeC):
+            for can in self.cokes:
                 xy_sample = xy + sampler.sample(self.scaled_radius, 100, verbose=False)
                 xyz[:, :2] = xy_sample
                 
@@ -116,35 +120,33 @@ class ArrayCanEnv(BaseEnv):
 
 
     def evaluate(self):
-        pos_A = self.cokeA.pose.p
-        pos_B = self.cokeB.pose.p
-        pos_C = self.cokeC.pose.p
 
-        d_AB = torch.linalg.norm(pos_A - pos_B, axis=1)
-        d_BC = torch.linalg.norm(pos_B - pos_C, axis=1)
-        d_CA = torch.linalg.norm(pos_C - pos_A, axis=1)
-
-        dis = torch.stack([d_AB, d_BC, d_CA], dim=-1)
-        dis, _ = torch.sort(dis, dim=-1)
-        d0,d1,d2 = dis.unbind(-1)
-
+        pos_list = [can.pose.p for can in self.cokes]
+        coke_pos = torch.stack(pos_list, dim=1)
+        dists = torch.cdist(coke_pos, coke_pos)
+        triu_inds = torch.triu_indices(self.num_cans, self.num_cans, offset=1)
+        pairwise = dists[:, triu_inds[0], triu_inds[1]]
+        dis, _ = torch.sort(pairwise, dim=-1)
+        d0, d1, d2 = dis.unbind(-1)[:3]
         tol = 0.01
-        is_equally_spaced = ((torch.abs(d0-d1) <= tol) |
-                             (torch.abs(d1-d2) <= tol))
-        
-        eps = 1e-6
-        lin_tol = 0.001
-        # lin_AB = (pos_B[:,1] - pos_A[:,1]) / (pos_B[:,0] - pos_A[:,0] + eps)
-        # lin_AC = (pos_C[:,1] - pos_A[:,1]) / (pos_C[:,0] - pos_A[:,0] + eps)
-        area = 0.5*(pos_A[:,0]*(pos_B[:,1]-pos_C[:,1])+pos_B[:,0]*(pos_C[:,1]-pos_A[:,1])+pos_C[:,0]*(pos_A[:,1]-pos_B[:,1]))
-        # is_linear = torch.abs(lin_AB - lin_AC) <= lin_tol
-        is_linear = area <= lin_tol
+        is_equally_spaced = ((torch.abs(d0 - d1) <= tol) | (torch.abs(d1 - d2) <= tol))
 
-        is_can_grasped = (self.agent.is_grasping(self.cokeA) |
-                          self.agent.is_grasping(self.cokeB) |
-                          self.agent.is_grasping(self.cokeC))
-        
-        success = is_equally_spaced * is_linear * (~is_can_grasped)
+        if self.num_cans == 3:
+            pos_A, pos_B, pos_C = pos_list
+            area = 0.5 * (
+                pos_A[:, 0] * (pos_B[:, 1] - pos_C[:, 1]) +
+                pos_B[:, 0] * (pos_C[:, 1] - pos_A[:, 1]) +
+                pos_C[:, 0] * (pos_A[:, 1] - pos_B[:, 1])
+            )
+            lin_tol = 0.001
+            is_linear = area.abs() <= lin_tol
+        else:
+            is_linear = torch.ones_like(is_equally_spaced)
+
+        grasp_flags = torch.stack([self.agent.is_grasping(can) for can in self.cokes], dim=1)
+
+        is_can_grasped = grasp_flags.any(dim=1)
+        success = is_equally_spaced & is_linear & (~is_can_grasped)
 
         return {
             "is_can_grasped": is_can_grasped,
@@ -156,44 +158,37 @@ class ArrayCanEnv(BaseEnv):
     def _get_obs_extra(self, info: Dict):
         obs = dict(tcp_pose=self.agent.tcp.pose.raw_pose)
         if "state" in self.obs_mode:
-            obs.update(
-                cokeA_pose=self.cokeA.pose.raw_pose,
-                cokeB_pose=self.cokeB.pose.raw_pose,
-                cokeC_pose=self.cokeC.pose.raw_pose,
-                tcp_to_cokeA_pos=self.cokeA.pose.p - self.agent.tcp.pose.p,
-                tcp_to_cokeB_pos=self.cokeB.pose.p - self.agent.tcp.pose.p,
-                tcp_to_cokeC_pos=self.cokeC.pose.p - self.agent.tcp.pose.p,
-                cokeA_to_cokeB_pos=self.cokeB.pose.p - self.cokeA.pose.p,
-                cokeB_to_cokeC_pos=self.cokeC.pose.p - self.cokeB.pose.p,
-                cokeC_to_cokeA_pos=self.cokeA.pose.p - self.cokeC.pose.p,
-            )
+            for idx, can in enumerate(self.cokes):
+                obs[f"coke{idx}_pose"] = can.pose.raw_pose
+                obs[f"tcp_to_coke{idx}_pos"] = can.pose.p - self.agent.tcp.pose.p
+            for i in range(self.num_cans):
+                for j in range(i + 1, self.num_cans):
+                    obs[f"coke{i}_to_coke{j}_pos"] = (
+                        self.cokes[j].pose.p - self.cokes[i].pose.p
+                    )
         return obs
 
     def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: Dict):
         # reaching reward
         tcp_pose = self.agent.tcp.pose.p
-        coke_pos = torch.stack([
-            self.cokeA.pose.p,
-            self.cokeB.pose.p,
-            self.cokeC.pose.p
-        ], dim=1)
+        coke_pos = torch.stack([can.pose.p for can in self.cokes], dim=1)
         coke_to_tcp_dists = torch.linalg.norm(tcp_pose.unsqueeze(1) - coke_pos, dim=-1)
         min_dist, _ = torch.min(coke_to_tcp_dists, dim=1)
         reward = 2 * (1 - torch.tanh(5 * min_dist))
 
-        grasped = info["is_can_grasped"].float()       # if can is grasped
-        spaced  = info["is_equally_spaced"].float()    # if cans are equally spaced
-        lined   = info["is_linear"].float()            # if cans are in a straight line
-        success = info["success"].float()              # if the task is completely successful
 
-        w_grasp  = 1.0   # grasp step weight
-        w_space  = 2.0   # spacing step weight
-        w_line   = 3.0   # alignment step weight
-        w_succ   = 6.0   # complete success weight
+        grasped = info["is_can_grasped"].float()
+        spaced  = info["is_equally_spaced"].float()
+        lined   = info["is_linear"].float()
+        success = info["success"].float()
+
+        w_grasp  = 1.0
+        w_space  = 2.0
+        w_line   = 3.0
+        w_succ   = 6.0
 
         reward = reward + grasped * w_grasp + spaced  * w_space \
                         + lined * w_line + success * w_succ
-
 
         return reward
 
@@ -201,3 +196,7 @@ class ArrayCanEnv(BaseEnv):
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
         return self.compute_dense_reward(obs=obs, action=action, info=info) / 8
+    
+    def get_can_poses(self):
+        return [can.pose.p for can in self.cokes]
+

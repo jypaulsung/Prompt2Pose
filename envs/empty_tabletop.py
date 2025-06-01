@@ -1,4 +1,4 @@
-# .venv/lib/python3.11/site-packages/mani_skill/envs/tasks/tabletop/empty_tabletop.py
+# add to python3.11/site-packages/mani_skill/envs/tasks/tabletop/empty_tabletop.py
 '''
 This script implements an empty tabletop environment for the destination_coords.py
 '''
@@ -79,4 +79,3 @@ class EmptyTabletopEnv(BaseEnv):
             sampler = randomization.UniformPlacementSampler(
                 bounds=region, batch_size=b, device=self.device
             )
-
