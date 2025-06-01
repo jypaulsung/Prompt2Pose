@@ -1,3 +1,9 @@
+"""
+This script collects the starting coordinates from a .txt file.
+It uses the pixel coordinates given by the LLM to convert them to world coordinates.
+The destination coordinates are then saved to the same .txt file.
+"""
+
 import argparse
 from ast import parse
 from typing import Annotated
@@ -96,49 +102,31 @@ def camera_to_world(p_cam, extrinsic):
 scipy_quat = R.from_euler("xyz", [0.0, np.pi / 2, 0]).as_quat()
 quat_cam = np.array([scipy_quat[3], scipy_quat[0], scipy_quat[1], scipy_quat[2]])
 
-def mark_starts(scene, pose, radius=0.01):
+def mark_coordinate(scene, pose, color, radius=0.01):
     """
     Create a visual marker at the specified pose in the scene.
     Args:
         scene (sapien.Scene): The scene to add the marker to.
         pose (list or np.ndarray): The position of the marker in the form [x, y, z].
+        color (list): The color of the marker in RGBA format, e.g., [1, 0, 0, 1] for red.
         radius (float): The radius of the marker sphere.
     """
-    global start_counter
-    name = f"start_marker_{start_counter}"
-    start_counter += 1
+    global _marker_counter
+    name = f"marker_{_marker_counter}"
+    _marker_counter += 1
 
     pose = sapien.Pose(p=[pose[0], pose[1], pose[2]])
 
     can_marker = actors.build_sphere(
         scene=scene,
         radius=radius,
-        color=[0, 0, 1, 1], # Blue color for start markers
+        color=color, 
         name=name,
         body_type="kinematic",
         add_collision=False,
         initial_pose=pose
     )
     return can_marker
-
-def mark_ends(scene, pose, radius=0.01):
-    global end_counter
-    name = f"end_marker_{end_counter}"
-    end_counter += 1
-
-    pose = sapien.Pose(p=[pose[0], pose[1], pose[2]])
-
-    marker = actors.build_sphere(
-        scene=scene,
-        radius=radius,
-        color=[0, 1, 0, 1], # Green color for end markers
-        name=name,
-        body_type="kinematic",
-        add_collision=False,
-        initial_pose=pose
-    )
-    return marker
-
 
 def load_detection_data(file_path):
     """
@@ -183,11 +171,10 @@ def main(args: Args):
     )
     num_trajs = 0
     seed = 0
-    global start_counter, end_counter
+    global _marker_counter
     # Reset the counters
     # This is to ensure that the markers are named uniquely across multiple runs
-    start_counter = 0
-    end_counter = 0
+    _marker_counter = 0
     env.reset(seed=seed)
 
     # Capture a screenshot of the scene
@@ -198,19 +185,19 @@ def main(args: Args):
     images = camera.get_images(obs_dict)
 
     # Load the data from the database
-    file_path = "/home/jypaulsung/Sapien/database/43/can_data_43.txt"
+    file_path = "/home/jypaulsung/Sapien/database/64/can_data_64.txt"
     data = load_detection_data(file_path)
 
     # Start pixel coordinates
-    for i, starts in enumerate(data["world_coordinates"]):
+    for i, starts in enumerate(data["starting_coordinates"]):
         start = np.zeros(3)
         start[0] = starts["x"]
         start[1] = starts["y"]
         start[2] = starts["z"]
-        mark_starts(env.unwrapped.scene, start)
+        mark_coordinate(env.unwrapped.scene, pose=start, color=[0, 0, 1, 1])
     
-    # Destination pixel coordinates
-    dst_pixels = [(354, 272), (304, 272), (204, 272), (254, 272)]
+    # Destination pixel coordinates (will be given by the LLM)
+    dst_pixels = [(169.333, 363.333), (219.333, 363.333), (269.333, 363.333)]
 
     # Get depth map
     depth_map = obs_dict["depth"].squeeze()
@@ -223,9 +210,9 @@ def main(args: Args):
     # Get camera pose
     camera_pose = camera.config.pose
 
-    # Convert each pixel to world coordinates
+    # Convert each pixel to world coordinates:
     dst_coords = []
-    for (u, v) in dst_pixels:
+    for u, v in dst_pixels:
         u_int, v_int = int(round(u)), int(round(v))
         Z = depth_map[v_int, u_int].cpu().item()
         Z = Z / 1000.0 # convert to meters
@@ -246,7 +233,16 @@ def main(args: Args):
         pose = sapien.Pose(p=position)
         
         # Add the visual sphere markers
-        mark_ends(env.unwrapped.scene, pose=pose.p)
+        mark_coordinate(env.unwrapped.scene, pose=pose.p, color=[0, 1, 0, 1])
+
+    # Append the destination coordinates to the .txt file
+    data["destination_coordinates"] = [
+        {"x": coord[0], "y": coord[1], "z": coord[2]} for coord in dst_coords
+    ]
+    with open(file_path, 'w') as f:
+        json.dump(data, f, indent=4)
+    
+    print(f"Updated destination coordinates to {file_path}.")
 
     env.unwrapped.scene.update_render()
 
