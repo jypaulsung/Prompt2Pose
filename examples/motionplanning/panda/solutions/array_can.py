@@ -7,7 +7,53 @@ from transforms3d.quaternions import qmult
 from mani_skill.envs.tasks import ArrayCanEnv
 from mani_skill.examples.motionplanning.panda.motionplanner import PandaArmMotionPlanningSolver
 
-
+def reorder_pick_place(can_extent, pick_list, place_list):
+    """
+    can_extent: [x_extent, y_extent, z_extent]
+    pick_list: list of [x, y, z]
+    place_list: list of [x, y, z]
+    """
+    picks = np.array(pick_list)
+    places = np.array(place_list)
+    r = can_extent[0]
+    
+    num_picks = len(picks)
+    num_places = len(places)
+    
+    distances = np.linalg.norm(picks[:, None, :2] - places[None, :, :2], axis=2)
+    
+    matches = []
+    for i in range(num_picks):
+        for j in range(num_places):
+            d = distances[i, j]
+            if d <= r:
+                matches.append((i, j, d))
+                
+    matches_sorted = sorted(matches, key=lambda x: x[2])
+    used_picks = set()
+    used_places = set()
+    matched_pairs = []
+    for i, j, d in matches_sorted:
+        if i not in used_picks and j not in used_places:
+            matched_pairs.append((i, j))
+            used_picks.add(i)
+            used_places.add(j)
+    
+    matched_picks = [i for i, _ in matched_pairs]
+    matched_places = [j for _, j in matched_pairs]
+    
+    remaining_picks = [i for i in range(num_picks) if i not in used_picks]
+    remaining_places = [j for j in range(num_places) if j not in used_places]
+    
+    for i, j in zip(remaining_picks, remaining_places):
+        matched_picks.append(i)
+        matched_places.append(j)
+    
+    new_picks = [pick_list[i] for i in matched_picks]
+    new_places = [place_list[j] for j in matched_places]
+    
+    return new_picks, new_places
+    
 def move_with_rotation_retries(planner, pose: sapien.Pose, max_retries=12):
     """
     planner.move_to_pose_with_screw(pose) 가 실패하면
@@ -121,6 +167,8 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
              [-0.24,0.08,0.08],
              [-0.24,-0.02,0.08],
              [-0.24,-0.12,0.08]]
+    
+    pick, place = reorder_pick_place([0.06, 0.06, 0.105], pick, place)
     
     for i in range(env.num_cans):
         pick = pick_place_with_obstacles(env.unwrapped, solver, i, pick[i], place[i], pick)
