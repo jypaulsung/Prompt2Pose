@@ -173,6 +173,16 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
     for i in range(env.num_cans):
         pick = pick_place_with_obstacles(env.unwrapped, solver, i, pick[i], place[i], pick)
 
+    poses = env.get_can_poses()
+    detection_data = {
+        "coke_dest" : [{"x": float(p[0]), "y": float(p[1]), "z": float(p[2])} for coord in poses])
+    }
+    
+    path = f"{project_root}/dataset/{seed}/can_dest_{seed}.txt"
+    with open(path, "w") as f:
+        json.dump(detection_data, f, indent=4)
+
+    print(f"Saved detection data to {path}.")
 
     solver.close()
     return True
