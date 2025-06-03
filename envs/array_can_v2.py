@@ -1,3 +1,7 @@
+# add to python3.11/site-packages/mani_skill/envs/tasks/tabletop/array_can_v2.py
+'''
+This script implements an ArrayCan-v2 environment for the starting_coordinates.py.
+'''
 from typing import Any, Dict, Union
 
 import numpy as np
@@ -18,8 +22,22 @@ from mani_skill.utils.structs.pose import Pose
 
 
 
-@register_env("ArrayCan-v1", max_episode_steps=50)
-class ArrayCanEnv(BaseEnv):
+@register_env("ArrayCan-v2", max_episode_steps=50)
+class ArrayCanEnv2(BaseEnv):
+    """
+    **Task Description:**
+    The goal is to arrange cans in a specific pattern on the table.
+    The cans should be equally spaced and form a linear arrangement.
+    
+    **Randomizations:**
+    - The cans are placed randomly on the table within a specified region.
+    - The cans have their xy positions on top of the table scene randomized. The positions are sampled such that the cans do not collide with each other.
+    
+    **Success Conditions:**
+    - The cans are arranged in a linear pattern with equal spacing.
+    - The cans are not being grasped by the robot (robot must let go of the cans).
+    - The cans are static and not moving.
+    """
     SUPPORTED_ROBOTS = ["panda_wristcam", "panda", "fetch"]
     agent: Union[Panda, Fetch]
 
@@ -27,7 +45,7 @@ class ArrayCanEnv(BaseEnv):
         self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
-        self.num_cans = 5
+        self.num_cans = random.randint(3, 5)  # Randomly choose number of cans between 3 and 5
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
@@ -49,9 +67,9 @@ class ArrayCanEnv(BaseEnv):
         )
         self.table_scene.build()
         
-        self.scale = 0.03  # scale factor for the can model
-        self.radius = 1  # radius of the can (m)
-        self.height = 3.5   # height of the can (m)
+        self.scale = 0.03  # modeling scale for the cans
+        self.radius = 1  # can radius (m)
+        self.height = 3.5   # can total height (m)
 
         self.scaled_radius = self.radius * self.scale
         self.scaled_half_height = (self.height * self.scale) / 2
@@ -61,7 +79,7 @@ class ArrayCanEnv(BaseEnv):
         I_xy = mass * (2*self.scaled_half_height)**2 / 3
 
         builder = self.scene.create_actor_builder()
-        model_path = os.path.join(os.path.dirname(__file__), "../../../assets/models/coke/coke.obj")
+        model_path = os.path.join(os.path.dirname(__file__), "/home/jypaulsung/Sapien/Shared/models/coke/coke.obj")
         builder.add_visual_from_file(
             model_path,
             scale=[self.scale] * 3
@@ -158,9 +176,27 @@ class ArrayCanEnv(BaseEnv):
         min_dist, _ = torch.min(coke_to_tcp_dists, dim=1)
         reward = 2 * (1 - torch.tanh(5 * min_dist))
 
+
+        grasped = info["is_can_grasped"].float()
+        spaced  = info["is_equally_spaced"].float()
+        lined   = info["is_linear"].float()
+        success = info["success"].float()
+
+        w_grasp  = 1.0
+        w_space  = 2.0
+        w_line   = 3.0
+        w_succ   = 6.0
+
+        reward = reward + grasped * w_grasp + spaced  * w_space \
+                        + lined * w_line + success * w_succ
+
         return reward
 
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
         return self.compute_dense_reward(obs=obs, action=action, info=info) / 8
+    
+    def get_can_poses(self):
+        return [can.pose.p for can in self.cokes]
+
