@@ -7,6 +7,11 @@ from transforms3d.quaternions import qmult
 from mani_skill.envs.tasks import ArrayCanEnv
 from mani_skill.examples.motionplanning.panda.motionplanner import PandaArmMotionPlanningSolver
 
+def load_world_coordinates(json_path):
+    with open(json_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    return data.get('world_coordinates', [])
+    
 def reorder_pick_place(can_extent, pick_list, place_list):
     """
     can_extent: [x_extent, y_extent, z_extent]
