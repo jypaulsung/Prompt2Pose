@@ -10,8 +10,8 @@ from mani_skill.examples.motionplanning.panda.motionplanner import PandaArmMotio
 def load_world_coordinates(json_path):
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    return data.get('world_coordinates', [])
-    
+    return data.get('starting_coordinates', [])
+
 def reorder_pick_place(can_extent, pick_list, place_list):
     """
     can_extent: [x_extent, y_extent, z_extent]
@@ -58,7 +58,7 @@ def reorder_pick_place(can_extent, pick_list, place_list):
     new_places = [place_list[j] for j in matched_places]
     
     return new_picks, new_places
-    
+
 def move_with_rotation_retries(planner, pose: sapien.Pose, max_retries=12):
     """
     planner.move_to_pose_with_screw(pose) 가 실패하면
@@ -146,7 +146,7 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
     pick = []
     for i, coord in enumerate(world_coords, start=1):
         pick.append([coord['x'], coord['y'], 0.08])
-        
+
     # 모든 캔 위치 (나중에 VLM으로 대체)
     # # seed = 0
     # pick = [[0.11796,  0.056426, 0.08],
@@ -179,15 +179,16 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
         pick = pick_place_with_obstacles(env.unwrapped, solver, i, pick[i], place[i], pick)
 
     poses = env.get_can_poses()
-    detection_data = {
-        "coke_dest" : [{"x": float(p[0]), "y": float(p[1]), "z": float(p[2])} for coord in poses])
-    }
+    coords_list = []
+    for t in poses:
+        coords_list.append(t.squeeze().tolist())
     
     path = f"{project_root}/dataset/{seed}/can_dest_{seed}.txt"
     with open(path, "w") as f:
-        json.dump(detection_data, f, indent=4)
+        json.dump(coords_list, f, indent=4)
 
     print(f"Saved detection data to {path}.")
+
 
     solver.close()
     return True
