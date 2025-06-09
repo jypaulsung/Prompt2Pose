@@ -12,6 +12,15 @@ def load_world_coordinates(json_path):
         data = json.load(f)
     return data.get('starting_coordinates', [])
 
+def load_detection_data(file_path):
+    """
+    Load detection data from a .txt (JSON-format) file.
+    """
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+    
+    return data
+
 def reorder_pick_place(can_extent, pick_list, place_list):
     """
     can_extent: [x_extent, y_extent, z_extent]
@@ -141,11 +150,22 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
 
     file = Path(__file__).resolve()
     project_root = file.parents[4]
-    path = f"{project_root}/dataset/{seed}/can_data_{seed}.txt"
-    world_coords = load_world_coordinates(path)
+    # path = f"{project_root}/dataset/{seed}/can_data_{seed}.txt"
+    path = f"/home/jypaulsung/Sapien/database/{seed}/processed_can_data_{seed}.txt"
+    # world_coords = load_world_coordinates(path)
+    # pick = []
+    # for i, coord in enumerate(world_coords, start=1):
+    #     pick.append([coord['x'], coord['y'], 0.08])
+    for i in range(0, 1):
+        iter_key = f"iter{i}"
+    data = load_detection_data(path)
     pick = []
-    for i, coord in enumerate(world_coords, start=1):
-        pick.append([coord['x'], coord['y'], 0.08])
+    for i, picks in enumerate(data[iter_key]['starting_coordinates']):
+        coord = np.zeros(3)
+        coord[0] = picks['x']
+        coord[1] = picks['y']
+        coord[2] = 0.08
+        pick.append(coord)
 
     # 모든 캔 위치 (나중에 VLM으로 대체)
     # # seed = 0
@@ -167,28 +187,51 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
     #         [-0.058669, -0.0886018, 0.08], 
     #         [0.070955, -0.0385983, 0.08])
 
-    place = [[-0.24,0.28,0.08],
-             [-0.24,0.18,0.08],
-             [-0.24,0.08,0.08],
-             [-0.24,-0.02,0.08],
-             [-0.24,-0.12,0.08]]
+    # place = [[-0.24,0.28,0.08],
+    #          [-0.24,0.18,0.08],
+    #          [-0.24,0.08,0.08],
+    #          [-0.24,-0.02,0.08],
+    #          [-0.24,-0.12,0.08]]
+    place = []
+    for i, places in enumerate(data[iter_key]['target_coordinates']):
+        coord = np.zeros(3)
+        coord[0] = places['x']
+        coord[1] = places['y']
+        coord[2] = 0.08
+        place.append(coord)
     
     pick, place = reorder_pick_place([0.06, 0.06, 0.105], pick, place)
     
     for i in range(env.num_cans):
         pick = pick_place_with_obstacles(env.unwrapped, solver, i, pick[i], place[i], pick)
 
-    poses = env.get_can_poses()
-    coords_list = []
-    for t in poses:
-        coords_list.append(t.squeeze().tolist())
+    # poses = env.get_can_poses()
+    # coords_list = []
+    # for t in poses:
+    #     coords_list.append(t.squeeze().tolist())
+    dst_reference = []
+    for can_pose in env.unwrapped.get_can_poses():
+        try:
+            position = can_pose.squeeze().cpu().numpy()[:3].astype(np.float32)
+        except:
+            position = np.array(can_pose[:3], dtype=np.float32)
+
+        pose = sapien.Pose(p=position)
+        dst_reference.append(pose.p)
+
+    data[iter_key]["destination_reference"] = [
+        {"x": float(coord[0]), "y": float(coord[1]), "z": float(coord[2])} for coord in dst_reference
+    ]
     
-    path = f"{project_root}/dataset/{seed}/can_dest_{seed}.txt"
+    # path = f"{project_root}/dataset/{seed}/can_dest_{seed}.txt"
     with open(path, "w") as f:
-        json.dump(coords_list, f, indent=4)
+        json.dump(data, f, indent=4)
 
     print(f"Saved detection data to {path}.")
 
 
     solver.close()
     return True
+
+def get_can_poses(self):
+    return [can.pose.p for can in self.cokes]

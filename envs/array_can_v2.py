@@ -45,7 +45,8 @@ class ArrayCanEnv2(BaseEnv):
         self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
-        self.num_cans = random.randint(3, 5)  # Randomly choose number of cans between 3 and 5
+        # self.num_cans = random.randint(3, 5)  # Randomly choose number of cans between 3 and 5
+        self.num_cans = 3 # Fixed number of cans for performance evaluation
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property

@@ -21,7 +21,7 @@ MP_SOLUTIONS = {
     "LiftPegUpright-v1": solveLiftPegUpright,
     "PullCube-v1": solvePullCube,
     "DrawSVG-v1" : solveDrawSVG,
-    "ArrayCan-v1" : solveArrayCan
+    "ArrayCan-v0" : solveArrayCan
 }
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
@@ -38,6 +38,8 @@ def parse_args(args=None):
     parser.add_argument("--shader", default="default", type=str, help="Change shader used for rendering. Default is 'default' which is very fast. Can also be 'rt' for ray tracing and generating photo-realistic renders. Can also be 'rt-fast' for a faster but lower quality ray-traced renderer")
     parser.add_argument("--record-dir", type=str, default="demos", help="where to save the recorded trajectories")
     parser.add_argument("--num-procs", type=int, default=1, help="Number of processes to use to help parallelize the trajectory replay process. This uses CPU multiprocessing and only works with the CPU simulation backend at the moment.")
+    parser.add_argument("--seed", type=int, default=0, help="Seed for initializing the environment")
+    parser.add_argument("--iteration", type=int, default=0, help="Iteration number to access different data from the same environment")
     return parser.parse_args()
 
 def _main(args, proc_id: int = 0, start_seed: int = 0) -> str:
@@ -76,14 +78,17 @@ def _main(args, proc_id: int = 0, start_seed: int = 0) -> str:
     solve = MP_SOLUTIONS[env_id]
     print(f"Motion Planning Running on {env_id}")
     pbar = tqdm(range(args.num_traj), desc=f"proc_id: {proc_id}")
-    seed = start_seed
+    # seed = start_seed
+    # seed = 2
+    seed = start_seed if start_seed != 0 else args.seed # Use the provided seed or the default one
+    iter_key = args.iteration if args.iteration >= 0 else 0
     successes = []
     solution_episode_lengths = []
     failed_motion_plans = 0
     passed = 0
     while True:
         try:
-            res = solve(env, seed=seed, debug=False, vis=True if args.vis else False)
+            res = solve(env, seed=seed, iter_key=iter_key,debug=False, vis=True if args.vis else False)
         except Exception as e:
             print(f"Cannot find valid solution because of an error in motion planning solution: {e}")
             res = -1
@@ -128,7 +133,8 @@ def main(args):
         if args.num_traj < args.num_procs:
             raise ValueError("Number of trajectories should be greater than or equal to number of processes")
         args.num_traj = args.num_traj // args.num_procs
-        seeds = [*range(0, args.num_procs * args.num_traj, args.num_traj)]
+        # seeds = [*range(0, args.num_procs * args.num_traj, args.num_traj)]
+        seeds = [args.seed + i * args.num_traj for i in range(args.num_procs)]
         pool = mp.Pool(args.num_procs)
         proc_args = [(deepcopy(args), i, seeds[i]) for i in range(args.num_procs)]
         res = pool.starmap(_main, proc_args)

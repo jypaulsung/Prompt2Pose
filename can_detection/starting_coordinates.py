@@ -5,6 +5,7 @@ The coordinates are saved in a JSON-like .txt file named `can_data_<seed>.txt` i
 - circle_centers: List of detected circle centers in the image.
 - circle_edges_0_deg: List of points on the detected circles at 0 degrees.
 - world_coordinates: List of world coordinates of the detected cans. (center of top of the can)
+- starting_reference: List of world coordinates of the cans as defined in the environment. (center of bottom of the can)
 """
 
 import argparse
@@ -38,7 +39,7 @@ import time
 import requests
 import cv2
 import math
-import json
+import sys
 from transformers import GroundingDinoProcessor
 from transformers import GroundingDinoForObjectDetection
 import matplotlib.pyplot as plt
@@ -62,6 +63,8 @@ class Args:
     """the shader to use for the viewer. 'default' is fast but lower-quality shader, 'rt' and 'rt-fast' are the ray tracing shaders"""
     video_saving_shader: str = "rt-fast"
     """the shader to use for the videos of the demonstrations. 'minimal' is the fast shader, 'rt' and 'rt-fast' are the ray tracing shaders"""
+    seed: int = 0
+    """the seed to use for the environment. If not provided, 0 will be used."""
 
 def parse_args() -> Args:
     return tyro.cli(Args)
@@ -120,8 +123,7 @@ def parse_args() -> Args:
 
 def detect_and_filter_circles(image_path, boxes, centers, edges):
     """
-    Detects circles in the image (cans).
-    Filters the circles based on the bounding boxes (returned by the object detection model) provided.
+    Detects circles (cans) in the image.
     GroundingDino was initially used to detect the bounding boxes of the cans, but it did not meet the accuracy requirements.
     Thus, we only use OpenCV's HoughCircles to detect the circles in the image for now.
     """
@@ -274,12 +276,16 @@ def main(args: Args):
         source_type="teleoperation",
         source_desc="teleoperation via the click+drag system"
     )
-    seed = random.randint(1, 100)
+    # seed = random.randint(1, 100) # Random seed for the environment
+    # seed = 1 # Fixed seed for performance evaluation
+    seed = args.seed
+
     num_trajs = 0
     print(f"Starting with seed {seed} and {num_trajs} trajectories collected so far.")
     env.reset(seed=seed)
 
     # Create a directory to save the files
+    # os.makedirs(f"your_path/{seed}", exist_ok=True)
     os.makedirs(f"/home/jypaulsung/Sapien/database/{seed}", exist_ok=True)
 
     # Capture a screenshot of the scene
@@ -293,6 +299,7 @@ def main(args: Args):
     rgb_image = images["rgb"]
     rgb_np = rgb_image.squeeze().cpu().numpy()
     img = Image.fromarray(rgb_np)
+    # source_path = f"your_path/{seed}/only_coke_{seed}.png"
     source_path = f"/home/jypaulsung/Sapien/database/{seed}/only_coke_{seed}.png"
     img.save(source_path)
 
@@ -329,6 +336,8 @@ def main(args: Args):
     # plot_results(image, results['scores'].tolist(), results['labels'].tolist(),
     #              results['boxes'].tolist(), text, f"/home/jypaulsung/Sapien/database/{seed}/can_detection_{seed}.png")
     
+    # Detect circles in the image using OpenCV's HoughCircles and save the result
+    # cv2.imwrite(f'your_path/{seed}/detected_circles_{seed}.png', detect_and_filter_circles(source_path, boxes, circle_centers, circle_edges))
     cv2.imwrite(f'/home/jypaulsung/Sapien/database/{seed}/detected_circles_{seed}.png', detect_and_filter_circles(source_path, boxes, circle_centers, circle_edges))
 
     # Get depth map
@@ -401,11 +410,37 @@ def main(args: Args):
     }
 
     
+    # save_path = f"/home/jypaulsung/Sapien/database/{seed}/can_data_{seed}.txt"
+    # with open(save_path, "w") as f:
+    #     json.dump(detection_data, f, indent=4)
+
+    # print(f"Saved detection data to {save_path}.")
+
     save_path = f"/home/jypaulsung/Sapien/database/{seed}/can_data_{seed}.txt"
+
+    # Check if file exists
+    if not os.path.exists(save_path):
+        # If it doesn't exist, save under "iter0"
+        data_to_save = {"iter0": detection_data}
+    else:
+        # If it exists, load existing data and determine the next iteration number
+        with open(save_path, "r") as f:
+            existing_data = json.load(f)
+        
+        # Find highest iteration number
+        iter_nums = [int(key[4:]) for key in existing_data.keys() if key.startswith("iter")]
+        next_iter = max(iter_nums) + 1 if iter_nums else 0
+
+        # Add new data
+        existing_data[f"iter{next_iter}"] = detection_data
+        data_to_save = existing_data
+
+    # Save updated data
     with open(save_path, "w") as f:
-        json.dump(detection_data, f, indent=4)
+        json.dump(data_to_save, f, indent=4)
 
     print(f"Saved detection data to {save_path}.")
+
 
     env.unwrapped.scene.update_render()
 

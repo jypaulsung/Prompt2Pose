@@ -50,6 +50,8 @@ class Args:
     """the shader to use for the viewer. 'default' is fast but lower-quality shader, 'rt' and 'rt-fast' are the ray tracing shaders"""
     video_saving_shader: str = "rt-fast"
     """the shader to use for the videos of the demonstrations. 'minimal' is the fast shader, 'rt' and 'rt-fast' are the ray tracing shaders"""
+    seed: int = 0
+    """the seed to use for the environment. If not provided, 0 will be used."""
 
 def parse_args() -> Args:
     return tyro.cli(Args)
@@ -170,7 +172,7 @@ def main(args: Args):
         source_desc="teleoperation via the click+drag system"
     )
     num_trajs = 0
-    seed = 0
+    seed = args.seed
     global _marker_counter
     # Reset the counters
     # This is to ensure that the markers are named uniquely across multiple runs
@@ -185,64 +187,79 @@ def main(args: Args):
     images = camera.get_images(obs_dict)
 
     # Load the data from the database
-    file_path = "/home/jypaulsung/Sapien/database/64/can_data_64.txt"
+    file_path = f"/home/jypaulsung/Sapien/database/{seed}/processed_can_data_{seed}.txt"
     data = load_detection_data(file_path)
 
-    # Start pixel coordinates
-    for i, starts in enumerate(data["starting_coordinates"]):
-        start = np.zeros(3)
-        start[0] = starts["x"]
-        start[1] = starts["y"]
-        start[2] = starts["z"]
-        mark_coordinate(env.unwrapped.scene, pose=start, color=[0, 0, 1, 1])
-    
-    # Destination pixel coordinates (will be given by the LLM)
-    dst_pixels = [(169.333, 363.333), (219.333, 363.333), (269.333, 363.333)]
-
-    # Get depth map
-    depth_map = obs_dict["depth"].squeeze()
-
-    # Get camera intrinsic matrix
-    params = camera.get_params()
-    K = params["intrinsic_cv"].squeeze()
-    extrinsic = params["extrinsic_cv"].squeeze()
-
-    # Get camera pose
-    camera_pose = camera.config.pose
-
-    # Convert each pixel to world coordinates:
-    dst_coords = []
-    for u, v in dst_pixels:
-        u_int, v_int = int(round(u)), int(round(v))
-        Z = depth_map[v_int, u_int].cpu().item()
-        Z = Z / 1000.0 # convert to meters
-        p_cam = pixel_to_camera_coords(u, v, Z, K)
-        p_world = camera_to_world(p_cam, extrinsic)
-        p_world[2] = 0.105 # set z to the height of the can
-        dst_coords.append(p_world)
-    
-    # Visualize the world coordinates
-    for coord in dst_coords:
-        # Ensure coord is a 1D NumPy array with 3 elements
-        if isinstance(coord, torch.Tensor):
-            position = coord.squeeze().cpu().numpy()[:3].astype(np.float32)
-        else:
-            position = np.array(coord[:3], dtype=np.float32)
+    # # Start pixel coordinates
+    # for i, starts in enumerate(data["starting_coordinates"]):
+    #     start = np.zeros(3)
+    #     start[0] = starts["x"]
+    #     start[1] = starts["y"]
+    #     start[2] = starts["z"]
+    #     mark_coordinate(env.unwrapped.scene, pose=start, color=[0, 0, 1, 1])
+    for i in range(10):
+        iter_key = f"iter{i}"
+        for i, starts in enumerate(data[iter_key]["starting_coordinates"]):
+            start = np.zeros(3)
+            start[0] = starts["x"]
+            start[1] = starts["y"]
+            start[2] = starts["z"]
+            # mark_coordinate(env.unwrapped.scene, pose=start, color=[0, 0, 1, 1])
         
-        # Create the Pose with the corrected position
-        pose = sapien.Pose(p=position)
+        dst_pixels = []
+        for i, dsts in enumerate(data[iter_key]["dst_pixels"]):
+            dst = np.zeros(2)
+            dst[0] = dsts["x"]
+            dst[1] = dsts["y"]
+            dst_pixels.append(dst)
         
-        # Add the visual sphere markers
-        mark_coordinate(env.unwrapped.scene, pose=pose.p, color=[0, 1, 0, 1])
+        # # Destination pixel coordinates (will be given by the LLM)
+        # dst_pixels = [(169.333, 363.333), (219.333, 363.333), (269.333, 363.333)]
 
-    # Append the destination coordinates to the .txt file
-    data["destination_coordinates"] = [
-        {"x": coord[0], "y": coord[1], "z": coord[2]} for coord in dst_coords
-    ]
-    with open(file_path, 'w') as f:
-        json.dump(data, f, indent=4)
-    
-    print(f"Updated destination coordinates to {file_path}.")
+        # Get depth map
+        depth_map = obs_dict["depth"].squeeze()
+
+        # Get camera intrinsic matrix
+        params = camera.get_params()
+        K = params["intrinsic_cv"].squeeze()
+        extrinsic = params["extrinsic_cv"].squeeze()
+
+        # Get camera pose
+        camera_pose = camera.config.pose
+
+        # Convert each pixel to world coordinates:
+        dst_coords = []
+        for u, v in dst_pixels:
+            u_int, v_int = int(round(u)), int(round(v))
+            Z = depth_map[v_int, u_int].cpu().item()
+            Z = Z / 1000.0 # convert to meters
+            p_cam = pixel_to_camera_coords(u, v, Z, K)
+            p_world = camera_to_world(p_cam, extrinsic)
+            p_world[2] = 0.105 # set z to the height of the can
+            dst_coords.append(p_world)
+        
+        # Visualize the world coordinates
+        for coord in dst_coords:
+            # Ensure coord is a 1D NumPy array with 3 elements
+            if isinstance(coord, torch.Tensor):
+                position = coord.squeeze().cpu().numpy()[:3].astype(np.float32)
+            else:
+                position = np.array(coord[:3], dtype=np.float32)
+            
+            # Create the Pose with the corrected position
+            pose = sapien.Pose(p=position)
+            
+            # Add the visual sphere markers
+            # mark_coordinate(env.unwrapped.scene, pose=pose.p, color=[0, 1, 0, 1])
+
+        # Append the destination coordinates to the .txt file
+        data[iter_key]["destination_coordinates"] = [
+            {"x": coord[0], "y": coord[1], "z": coord[2]} for coord in dst_coords
+        ]
+        with open(file_path, 'w') as f:
+            json.dump(data, f, indent=4)
+        
+        print(f"Updated {iter_key}'s destination coordinates to {file_path}.")
 
     env.unwrapped.scene.update_render()
 

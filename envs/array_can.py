@@ -18,7 +18,7 @@ from mani_skill.utils.structs.pose import Pose
 
 
 
-@register_env("ArrayCan-v1", max_episode_steps=50)
+@register_env("ArrayCan-v0", max_episode_steps=50)
 class ArrayCanEnv(BaseEnv):
     SUPPORTED_ROBOTS = ["panda_wristcam", "panda", "fetch"]
     agent: Union[Panda, Fetch]
@@ -27,7 +27,7 @@ class ArrayCanEnv(BaseEnv):
         self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
-        self.num_cans = 5
+        self.num_cans = 3 # Fixed number of cans for performance evaluation
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
@@ -61,7 +61,8 @@ class ArrayCanEnv(BaseEnv):
         I_xy = mass * (2*self.scaled_half_height)**2 / 3
 
         builder = self.scene.create_actor_builder()
-        model_path = os.path.join(os.path.dirname(__file__), "../../../assets/models/coke/coke.obj")
+        # model_path = os.path.join(os.path.dirname(__file__), "../../../assets/models/coke/coke.obj")
+        model_path = os.path.join(os.path.dirname(__file__), "/home/jypaulsung/Sapien/Shared/models/coke/coke.obj") # Adjust this path as needed
         builder.add_visual_from_file(
             model_path,
             scale=[self.scale] * 3
@@ -164,3 +165,6 @@ class ArrayCanEnv(BaseEnv):
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
         return self.compute_dense_reward(obs=obs, action=action, info=info) / 8
+    
+    def get_can_poses(self):
+        return [can.pose.p for can in self.cokes]
