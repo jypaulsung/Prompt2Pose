@@ -256,10 +256,10 @@ def main(args: Args):
         data[iter_key]["destination_coordinates"] = [
             {"x": coord[0], "y": coord[1], "z": coord[2]} for coord in dst_coords
         ]
-        with open(file_path, 'w') as f:
-            json.dump(data, f, indent=4)
-        
-        print(f"Updated {iter_key}'s destination coordinates to {file_path}.")
+    with open(file_path, 'w') as f:
+        json.dump(data, f, indent=4)
+    
+    print(f"Appended all destination coordinates to {file_path}.")
 
     env.unwrapped.scene.update_render()
 
