@@ -7,10 +7,14 @@ from transforms3d.quaternions import qmult
 from mani_skill.envs.tasks import ArrayCanEnv
 from mani_skill.examples.motionplanning.panda.motionplanner import PandaArmMotionPlanningSolver
 
+# def load_world_coordinates(json_path):
+#     with open(json_path, 'r', encoding='utf-8') as f:
+#         data = json.load(f)
+#         data = data.get('iter0', [])
+#     return data.get('starting_coordinates', [])
 def load_world_coordinates(json_path):
     with open(json_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    return data.get('starting_coordinates', [])
+        return json.load(f)
 
 def reorder_pick_place(can_extent, pick_list, place_list):
     """
@@ -78,8 +82,9 @@ def move_with_rotation_retries(planner, pose: sapien.Pose, max_retries=12):
         pose.q = q_new.tolist()
 
         attempt += 1
-
+    
     raise RuntimeError(f"screw plan failed after {max_retries} retries")
+    
 
 def pick_place_with_obstacles(
     env,
@@ -141,38 +146,19 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
 
     file = Path(__file__).resolve()
     project_root = file.parents[4]
-    path = f"{project_root}/dataset/{seed}/can_data_{seed}.txt"
-    world_coords = load_world_coordinates(path)
+    path = f"{project_root}/dataset/{seed}/processed_can_data_{seed}.txt"
+    data = load_world_coordinates(path)
+    world_coords = data.get('iter0', [])
+    world_coords = world_coords.get('starting_coordinates', [])
     pick = []
     for i, coord in enumerate(world_coords, start=1):
         pick.append([coord['x'], coord['y'], 0.08])
-
-    # 모든 캔 위치 (나중에 VLM으로 대체)
-    # # seed = 0
-    # pick = [[0.11796,  0.056426, 0.08],
-    #         [0.0148988,0.205559, 0.08],
-    #         [-0.0594433,0.199338,0.08],
-    #         [-0.0628068,0.0752942,0.08],
-    #         [-0.12443, -0.0406532,0.08]]
-    # # seed = 1
-    # pick = ([0.066385, 0.0737458, 0.08], 
-    #         [0.037905, 0.0130262, 0.08], 
-    #         [0.143296, -0.0365266, 0.08], 
-    #         [0.121768, -0.115834, 0.08], 
-    #         [0.0418419, -0.12208, 0.08])
-    # # seed = 2
-    # pick = ([-0.00316405, 0.0917179, 0.08], 
-    #         [-0.0914487, 0.0033105, 0.08], 
-    #         [0.0155603, 0.00856102, 0.08], 
-    #         [-0.058669, -0.0886018, 0.08], 
-    #         [0.070955, -0.0385983, 0.08])
-
-    place = [[-0.24,0.28,0.08],
-             [-0.24,0.18,0.08],
-             [-0.24,0.08,0.08],
-             [-0.24,-0.02,0.08],
-             [-0.24,-0.12,0.08]]
     
+    dest_coords = data.get('destination_coordinates', [])
+    place = []
+    for i, coord in enumerate(dest_coords, start=1):
+        place.append([coord['x'], coord['y'], 0.08])
+
     pick, place = reorder_pick_place([0.06, 0.06, 0.105], pick, place)
     
     for i in range(env.num_cans):
@@ -183,12 +169,26 @@ def solve(env: ArrayCanEnv, seed=None, debug=False, vis=False):
     for t in poses:
         coords_list.append(t.squeeze().tolist())
     
-    path = f"{project_root}/dataset/{seed}/can_dest_{seed}.txt"
+    path = Path(f"{project_root}/dataset/{seed}/can_dest_{seed}.txt")
+    
+    if path.exists():
+        with open(path, "r") as f:
+            all_data = json.load(f)
+    else:
+        all_data = {}
+
+    existing_iters = [int(k.replace("iter", "")) for k in all_data.keys() if k.startswith("iter")]
+    next_iter = max(existing_iters, default=-1) + 1
+    iter_key = f"iter{next_iter}"
+
+    all_data[iter_key] = coords_list
+
     with open(path, "w") as f:
-        json.dump(coords_list, f, indent=4)
+        json.dump(all_data, f, indent=4)
+
 
     print(f"Saved detection data to {path}.")
-
+    res = solver.open_gripper()
 
     solver.close()
-    return True
+    return res
