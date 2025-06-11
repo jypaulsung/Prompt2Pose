@@ -40,7 +40,7 @@ def parse_args(args=None):
     parser.add_argument("--num-procs", type=int, default=1, help="Number of processes to use to help parallelize the trajectory replay process. This uses CPU multiprocessing and only works with the CPU simulation backend at the moment.")
     return parser.parse_args()
 
-def _main(args, proc_id: int = 0, start_seed: int = 0) -> str:
+def _main(args, proc_id: int = 0, start_seed: int = 1) -> str:
     env_id = args.env_id
     env = gym.make(
         env_id,
@@ -116,7 +116,7 @@ def _main(args, proc_id: int = 0, start_seed: int = 0) -> str:
                     # min_episode_length=np.min(solution_episode_lengths)
                 )
             )
-            # seed += 1
+            seed += 1
             passed += 1
             if passed == args.num_traj:
                 break
