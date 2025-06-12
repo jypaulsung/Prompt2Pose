@@ -26,6 +26,7 @@ def main():
             dest_data = json.load(dest_path.open())
 
             dest_coords = proc_data.get("destination_coordinates", [])
+            dest_coords = sorted(dest_coords, key=lambda d: d["y"], reverse=True)
 
             for i in range(10):
                 key = f"iter{i}"
@@ -33,6 +34,7 @@ def main():
                 if not iter_list or len(iter_list) != len(dest_coords):
                     continue
 
+                iter_list = sorted(iter_list, key=lambda p: p[1], reverse=True)
                 distances = [
                     euclidean_distance(dest_coords[j], iter_list[j])
                     for j in range(len(dest_coords))
